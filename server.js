@@ -20,11 +20,12 @@ app.get("/", (_req, res) => {
 
 // Extension POSTs video updates here
 app.post("/update", (req, res) => {
-  const { token, videoId, title, channel, thumbnail, duration, position, paused, timestamp } = req.body;
+  const { token, ...rest } = req.body;
   if (!token) return res.status(400).json({ error: "Missing token" });
 
-  sessions[token] = { videoId, title, channel, thumbnail, duration, position, paused, timestamp, updatedAt: Date.now() };
-  log(`UPDATE  [${token}] ${paused ? "⏸" : "▶"} ${title?.slice(0, 40)}`);
+  const key = token.trim().toLowerCase(); // normalize here
+  sessions[key] = { ...rest, updatedAt: Date.now() };
+  log(`UPDATE  [${key}] ${rest.paused ? "⏸" : "▶"} ${rest.title?.slice(0, 40)}`);
   res.json({ ok: true });
 });
 
@@ -47,6 +48,12 @@ app.get("/status/:robloxUserId", (req, res) => {
 app.post("/link", (req, res) => {
   const { code, robloxUserId } = req.body;
   if (!code || !robloxUserId) return res.status(400).json({ error: "Missing code or robloxUserId" });
+
+  // lowercase both so casing never matters
+  userMap[robloxUserId] = code.trim().toLowerCase();
+  log(`LINKED  robloxId=${robloxUserId} → token=${code.trim().toLowerCase()}`);
+  res.json({ ok: true });
+});
 
   // Token is used directly — no pre-registration step needed
   userMap[robloxUserId] = code.trim();
