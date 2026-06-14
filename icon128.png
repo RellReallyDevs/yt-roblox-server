@@ -1,0 +1,88 @@
+// ─── YouTube → Roblox Bridge ─── background.js ────────────────────────────
+// Service worker that:
+//   1. Receives YT_NOW_PLAYING messages from the content script
+//   2. Looks up the user's token + server URL from storage
+//   3. POSTs the data to your backend server
+//   4. Updates the extension badge so the user can see sync status
+
+const DEFAULT_SERVER = "https://your-server.com"; // ← replace with your server URL
+
+// ── Badge helpers ─────────────────────────────────────────────────────────
+
+const setBadge = (text, color) => {
+  chrome.action.setBadgeText({ text });
+  chrome.action.setBadgeBackgroundColor({ color });
+};
+
+const badgeOk   = () => setBadge("▶", "#1DB954");
+const badgePause = () => setBadge("▐▐", "#888888");
+const badgeError = () => setBadge("ERR", "#E53E3E");
+const badgeOff  = () => setBadge("", "#000000");
+
+// ── Storage helpers ───────────────────────────────────────────────────────
+
+const getConfig = () =>
+  new Promise((resolve) =>
+    chrome.storage.sync.get(["userToken", "serverUrl", "enabled"], resolve)
+  );
+
+// ── Push to your backend ──────────────────────────────────────────────────
+
+const pushUpdate = async (payload) => {
+  const { userToken, serverUrl, enabled } = await getConfig();
+
+  if (!enabled) {
+    badgeOff();
+    return;
+  }
+
+  if (!userToken) {
+    setBadge("?", "#F6AD55");
+    console.warn("[YT→Roblox] No user token set. Open the popup to configure.");
+    return;
+  }
+
+  const base = (serverUrl || DEFAULT_SERVER).replace(/\/$/, "");
+
+  try {
+    const res = await fetch(`${base}/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: userToken, ...payload }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    payload.paused ? badgePause() : badgeOk();
+
+    // Cache latest state so popup can read it without a live message
+    chrome.storage.local.set({ nowPlaying: payload });
+  } catch (err) {
+    badgeError();
+    console.error("[YT→Roblox] Failed to push update:", err);
+  }
+};
+
+// ── Message listener ──────────────────────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type !== "YT_NOW_PLAYING") return;
+
+  pushUpdate(msg);
+
+  // Allow popup to query current state by pinging background
+  sendResponse({ received: true });
+});
+
+// ── Startup ───────────────────────────────────────────────────────────────
+
+chrome.runtime.onStartup.addListener(badgeOff);
+chrome.runtime.onInstalled.addListener(() => {
+  badgeOff();
+  // Set default values on first install
+  chrome.storage.sync.get(["enabled"], ({ enabled }) => {
+    if (enabled === undefined) {
+      chrome.storage.sync.set({ enabled: true });
+    }
+  });
+});

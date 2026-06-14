@@ -1,0 +1,89 @@
+# YouTube → Roblox Bridge — Browser Extension
+
+Syncs your active YouTube video to your Roblox experience in real time.
+
+---
+
+## How it works
+
+```
+YouTube tab  →  content.js scrapes metadata
+                    ↓
+              background.js POSTs to your server
+                    ↓
+              Your server stores user state
+                    ↓
+              Roblox polls /status/:token  →  in-game GUI updates
+```
+
+---
+
+## Installation (Chrome / Edge / Brave)
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode** (top right)
+3. Click **Load unpacked**
+4. Select this entire `yt-roblox-extension/` folder
+
+The extension icon will appear in your toolbar.
+
+---
+
+## Setup
+
+### 1. Add placeholder icons
+Chrome requires icon files. Drop 16×16, 48×48, and 128×128 PNGs into the
+`icons/` folder named `icon16.png`, `icon48.png`, `icon128.png`.
+Any placeholder images work while developing.
+
+### 2. Point it at your server
+Open the extension popup and set:
+- **Bridge Server URL** — the URL of your backend server (e.g. `https://your-server.com`)
+- **Your Roblox Link Token** — a short code that identifies you. This is the
+  same code you enter in-game with `/link` to connect your accounts.
+
+### 3. Play a YouTube video
+The badge turns green (▶) when syncing and grey (▐▐) when paused.
+
+---
+
+## Data sent to your server
+
+Every update POSTs this JSON to `POST /update`:
+
+```json
+{
+  "token":     "XK-4921",
+  "videoId":   "dQw4w9WgXcQ",
+  "title":     "Never Gonna Give You Up",
+  "channel":   "Rick Astley",
+  "thumbnail": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+  "duration":  213,
+  "position":  47,
+  "paused":    false,
+  "url":       "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "timestamp": 1718000000000
+}
+```
+
+Your server exposes `GET /status/:token` for Roblox to poll.
+
+---
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `manifest.json` | Extension config & permissions |
+| `src/content.js` | Runs on YouTube — scrapes video metadata & events |
+| `src/background.js` | Service worker — receives messages, POSTs to server |
+| `src/popup.html` | Extension popup UI |
+| `src/popup.js` | Popup logic — settings, live now-playing display |
+
+---
+
+## Next steps
+
+- **Backend server** — a simple Express/Node server that stores user state
+- **Roblox scripts** — HttpService polling + RemoteEvent broadcast to all clients
+- **Account linking flow** — `/link` chat command that maps tokens to Roblox UserIds
