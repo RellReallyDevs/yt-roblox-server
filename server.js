@@ -54,14 +54,6 @@ app.post("/link", (req, res) => {
   log(`LINKED  robloxId=${robloxUserId} → token=${code.trim().toLowerCase()}`);
   res.json({ ok: true });
 });
-
-  // Token is used directly — no pre-registration step needed
-  userMap[robloxUserId] = code.trim();
-
-  log(`LINKED  robloxId=${robloxUserId} → token=${code.trim()}`);
-  res.json({ ok: true });
-});
-
 // Check if a Roblox player is linked
 app.get("/linked/:robloxUserId", (req, res) => {
   res.json({ linked: !!userMap[req.params.robloxUserId] });
