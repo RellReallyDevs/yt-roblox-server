@@ -1,6 +1,6 @@
 {
   "name": "yt-roblox-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Bridge server between YouTube browser extension and Roblox",
   "main": "server.js",
   "type": "commonjs",
