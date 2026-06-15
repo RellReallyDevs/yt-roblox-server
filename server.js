@@ -1,8 +1,8 @@
-// ─── YouTube → Roblox Bridge Server ──────────────────────────────────────
-const express = require("express");
-const cors    = require("cors");
-const https   = require("https");
-const http    = require("http");
+// ─── YouTube → Roblox Bridge Server (ESM) ────────────────────────────────
+import express  from "express";
+import cors     from "cors";
+import https    from "https";
+import { Innertube } from "youtubei.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -16,62 +16,27 @@ const commands = {};
 
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 
-// ── Piped API instances (tried in order, falls back if one is down) ────────
+// ── Innertube session ─────────────────────────────────────────────────────
 
-const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.adminforge.de",
-  "https://api.piped.yt",
-  "https://pipedapi.drgns.space",
-  "https://piped-api.privacy.com.de",
-];
+let innertube = null;
 
-// ── HTTP fetch helper ──────────────────────────────────────────────────────
-
-const fetchJson = (url) => new Promise((resolve, reject) => {
-  const lib = url.startsWith("https") ? https : http;
-  const req = lib.get(url, { headers: { "User-Agent": "AURA-Roblox-Bridge/1.0" } }, (res) => {
-    let data = "";
-    res.on("data", chunk => data += chunk);
-    res.on("end", () => {
-      try { resolve(JSON.parse(data)); }
-      catch { reject(new Error("Invalid JSON")); }
-    });
-  });
-  req.on("error", reject);
-  req.setTimeout(5000, () => { req.destroy(); reject(new Error("Timeout")); });
-});
-
-// ── Search with automatic instance fallback ───────────────────────────────
+const getInnertube = async () => {
+  if (innertube) return innertube;
+  innertube = await Innertube.create({ generate_session_locally: true });
+  log("Innertube session created");
+  return innertube;
+};
 
 const searchYouTube = async (query) => {
-  for (const instance of PIPED_INSTANCES) {
-    try {
-      const url  = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
-      const data = await fetchJson(url);
+  const yt      = await getInnertube();
+  const results = await yt.search(query, { type: "video" });
 
-      if (!data.items || !Array.isArray(data.items)) continue;
-
-      // Normalize results — Piped returns url as "/watch?v=ID"
-      const results = data.items
-        .filter(v => v.type === "stream" || v.url?.includes("watch"))
-        .slice(0, 8)
-        .map(v => ({
-          videoId:  v.url?.split("v=")?.[1]?.split("&")?.[0] || "",
-          title:    v.title    || "Unknown",
-          channel:  v.uploaderName || "Unknown",
-          duration: v.duration || 0,
-          views:    v.views    || 0,
-        }))
-        .filter(v => v.videoId);
-
-      log(`SEARCH  [${instance}] "${query}" → ${results.length} results`);
-      return results;
-    } catch (err) {
-      log(`SEARCH  [${instance}] failed: ${err.message} — trying next`);
-    }
-  }
-  throw new Error("All Piped instances failed");
+  return results.videos.slice(0, 8).map(v => ({
+    videoId:  v.id              || "",
+    title:    v.title?.text     || "Unknown",
+    channel:  v.author?.name   || "Unknown",
+    duration: v.duration?.seconds || 0,
+  })).filter(v => v.videoId);
 };
 
 // ── Health check ──────────────────────────────────────────────────────────
@@ -91,7 +56,7 @@ app.get("/thumbnail/:videoId", (req, res) => {
   }).on("error", () => res.status(500).json({ error: "Failed" }));
 });
 
-// ── Search endpoint (called by Roblox) ───────────────────────────────────
+// ── Search ────────────────────────────────────────────────────────────────
 
 app.get("/search", async (req, res) => {
   const query = req.query.q;
@@ -99,6 +64,7 @@ app.get("/search", async (req, res) => {
 
   try {
     const results = await searchYouTube(query);
+    log(`SEARCH  "${query}" → ${results.length} results`);
     res.json({ results });
   } catch (err) {
     log(`SEARCH ERROR: ${err.message}`);
@@ -106,7 +72,7 @@ app.get("/search", async (req, res) => {
   }
 });
 
-// ── Extension → Server (video update) ────────────────────────────────────
+// ── Extension → Server ────────────────────────────────────────────────────
 
 app.post("/update", (req, res) => {
   const { token, videoId, title, channel, duration, position, paused, timestamp } = req.body;
@@ -138,7 +104,7 @@ app.get("/commands/:token", (req, res) => {
   res.json({ command: pending });
 });
 
-// ── Roblox sends a playback command ──────────────────────────────────────
+// ── Roblox sends a command ────────────────────────────────────────────────
 
 app.post("/command", (req, res) => {
   const { robloxUserId, action } = req.body;
@@ -147,13 +113,12 @@ app.post("/command", (req, res) => {
   const token = userMap[robloxUserId];
   if (!token) return res.status(404).json({ error: "User not linked" });
 
-  // For load_video, action is "load_video:VIDEO_ID"
   commands[token] = action;
   log(`COMMAND [${token}] ${action}`);
   res.json({ ok: true });
 });
 
-// ── Roblox polls player status ────────────────────────────────────────────
+// ── Roblox polls status ───────────────────────────────────────────────────
 
 app.get("/status/:robloxUserId", (req, res) => {
   const token = userMap[req.params.robloxUserId];
@@ -174,9 +139,8 @@ app.post("/link", (req, res) => {
   const { code, robloxUserId } = req.body;
   if (!code || !robloxUserId) return res.status(400).json({ error: "Missing fields" });
 
-  const token = code.trim().toLowerCase();
-  userMap[robloxUserId] = token;
-  log(`LINKED  robloxId=${robloxUserId} → token=${token}`);
+  userMap[robloxUserId] = code.trim().toLowerCase();
+  log(`LINKED  robloxId=${robloxUserId} → token=${code.trim().toLowerCase()}`);
   res.json({ ok: true });
 });
 
@@ -186,4 +150,8 @@ app.get("/linked/:robloxUserId", (req, res) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => log(`Server running on port ${PORT}`));
+app.listen(PORT, async () => {
+  log(`Server running on port ${PORT}`);
+  try { await getInnertube(); }
+  catch (e) { log(`Innertube warmup failed: ${e.message}`); }
+});
