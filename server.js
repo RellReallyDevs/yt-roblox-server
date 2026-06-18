@@ -363,26 +363,22 @@ const refreshNews = async () => {
         }
         const data  = await res.json();
 
-        // Log the top-level keys once so we can see the real response shape
-        log(`NEWS DEBUG [${topic.label}] keys=${Object.keys(data).join(",")}`);
+        const items = (data.results || []).slice(0, 5);
 
-        // APITube wraps articles under different keys depending on plan/endpoint
-        const items = (
-          data.articles    ||   // standard
-          data.data        ||   // some plans
-          data.results     ||   // fallback
-          data.news        ||   // fallback
-          []
-        ).slice(0, 5);
-
-        log(`NEWS DEBUG [${topic.label}] items found=${items.length}`);
+        // Helper: safely pull a string from a field that might be an object
+        const str = (v) => {
+          if (!v) return "";
+          if (typeof v === "string") return v;
+          if (typeof v === "object") return v.name || v.title || v.text || JSON.stringify(v);
+          return String(v);
+        };
 
         return items.map(a => ({
           category:    topic.label,
-          title:       a.title             || a.headline    || "No title",
-          description: a.description       || a.summary     || a.excerpt || "",
-          source:      a.source?.name      || a.source_name || a.source  || "",
-          publishedAt: (a.published_at     || a.publishedAt || "").slice(0, 10),
+          title:       str(a.title)       || str(a.headline)    || "No title",
+          description: str(a.description) || str(a.summary)     || str(a.excerpt) || "",
+          source:      str(a.source?.name ? a.source.name : a.source) || str(a.source_name) || "",
+          publishedAt: str(a.published_at || a.publishedAt).slice(0, 10),
         }));
       })
     );
